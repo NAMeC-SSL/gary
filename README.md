@@ -34,10 +34,10 @@ To build and upload the firmware to the mainboard, use the following commands:
 
 - For the base station
 
-> pio run -t upload -e base
+> pio run -t upload -e base_station
+
 ## Licensing
 
 This project is licensed under the GNU General Public License v3.0 (GPL-3.0). See the [LICENSE-GPL-3.0](LICENSE-GPL-3.0) file for details.
 
 The ZEST_CORE_STM32L4A6RG mainboard and PIO library are licensed under the Apache License, Version 2.0. See the [LICENSE-Apache-2.0](LICENSE-Apache-2.0) file for details.
-
