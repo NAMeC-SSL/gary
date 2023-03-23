@@ -1,5 +1,6 @@
-#include "mbed.h"
 #include <swo.h>
+
+#include "mbed.h"
 
 #define BLINKING_RATE 500ms
 static SWO swo;

@@ -1,0 +1,46 @@
+{
+  "name": "ssl-mainboard",
+  "target_overrides": {
+    "ZEST_CORE_STM32L4A6RG": {
+      "target.macros_add": [
+        "SPI_MOSI_RF=PA_7",
+        "SPI_MISO_RF=PA_6",
+        "SPI_SCK_RF=PA_5",
+        "SPI_CS_RF1=PB_5",
+        "SPI_CS_RF2=PB_4",
+        "SPI_CS_RF3=PD_2",
+        "CE_RF1=PC_12",
+        "CE_RF2=PC_2",
+        "CE_RF3=PC_3",
+        "IRQ_RF1=PA_1",
+        "IRQ_RF2=PA_8",
+        "IRQ_RF3=PC_10",
+        "SPI_MOSI_DRV=PB_15",
+        "SPI_MISO_DRV=PB_14",
+        "SPI_SCK_DRV=PB_10",
+        "SPI_CS_DRV1=PB_2",
+        "SPI_CS_DRV2=PA_10",
+        "SPI_CS_DRV3=PA_9",
+        "SPI_CS_DRV4=PB_0",
+        "SPI_CS_DRV5=ICAPT1",
+        "DRV_BOOT=PC_1",
+        "DRV_TX=PA_2",
+        "DRV_RX=PA_3",
+        "MUX_UART_OE=PC_13",
+        "MUX_UART_0=PB_12",
+        "MUX_UART_1=PB_13",
+        "MUX_UART_2=PC_0",
+        "KCK_EN=PB_6",
+        "KCK1=PC_8",
+        "KCK2=PC_9",
+        "BUZZER_PIN=PB_7",
+        "IR_RECEIVE=PA_0",
+        "IR_EMIT=PH_1",
+        "ADDR1=PH_0",
+        "ADDR2=PC_6",
+        "ADDR3=PC_7",
+        "MUX_ANA=PA_4"
+      ]
+    }
+  }
+}
