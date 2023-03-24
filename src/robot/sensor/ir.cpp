@@ -1,6 +1,5 @@
 #include "ir.h"
 
-static SWO swo;
 #define IR_THRESHOLD 0.6
 
 namespace ir {
@@ -10,7 +9,6 @@ namespace ir {
 
     void compute() {
         emit = 1;
-        // TODO : verify if wait is needed
         value = receive.read();
         emit = 0;
     }

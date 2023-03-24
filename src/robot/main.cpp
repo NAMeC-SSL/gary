@@ -8,6 +8,8 @@ static SWO swo;
 
 DigitalOut led(LED1);
 
+EventQueue event_queue;
+
 int main() {
     while (true) {
         led = !led;
