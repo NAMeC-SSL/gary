@@ -1,51 +1,77 @@
+/*
+ * Copyright (c) 2022, CATIE
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 #include "brushless_board.h"
 
-BrushlessBoard::BrushlessBoard(SPI *spi, PinName chip_select)
-    : _chip_select(chip_select), _spi(spi) {}
+Brushless_board::Brushless_board(SPI *spi, PinName chip_select,
+                                 Mutex *spi_mutex)
+    : _communication_thread(),
+      _event_queue(),
+      _communication_id(0),
+      _period_ms(100),
+      _spi(spi),
+      _chip_select(chip_select, 1),
+      _spi_mutex(spi_mutex),
+      _tx_error_count(0),
+      _rx_error_count(0),
+      _current_command(Commands_STOP),
+      _current_speed(0) {}
 
-void BrushlessBoard::set_speed(Commands command, float speed) {
-    RobotToBrushless msg = RobotToBrushless_init_zero;
+Brushless_board::Brushless_error Brushless_board::send_message() {
+    RobotToBrushless message = RobotToBrushless_init_zero;
     memset(_brushless_tx_buffer, 0, sizeof(_brushless_tx_buffer));
 
-    pb_ostream_t tx_stream = pb_ostream_from_buffer(
-        _brushless_tx_buffer + HEADER_SIZE, RobotToBrushless_size);
+    /* Create a stream that will write to our buffer. */
+    pb_ostream_t tx_stream =
+        pb_ostream_from_buffer(_brushless_tx_buffer + 5, RobotToBrushless_size);
 
-    msg.command = command;
-    msg.speed = speed;
+    message.command = _current_command;
+    message.speed = _current_speed;
 
-    bool status = pb_encode(&tx_stream, RobotToBrushless_fields, &msg);
+    /* Now we are ready to encode the message! */
+    bool status = pb_encode(&tx_stream, RobotToBrushless_fields, &message);
     size_t message_length = tx_stream.bytes_written;
 
-    printf("Bytes_written: %d/%d\n", tx_stream.bytes_written,
-           BrushlessToRobot_size);
-    for (int i = 0; i < tx_stream.bytes_written; i++) {
-        printf("%x ", _brushless_tx_buffer[4 + i]);
-    }
-    printf("\n");
+    // printf("Bytes_written: %d/%d\n", tx_stream.bytes_written,
+    // MainBoardToBrushless_size); for (int i = 0; i < tx_stream.bytes_written;
+    // i++) {
+    //     printf("%x ", _brushless_tx_buffer[4 + i]);
+    // }
+    // printf("\n");
 
+    /* Then just check for any errors.. */
     if (!status) {
         printf("[BRUSHLESS] Encoding failed: %s\n", PB_GET_ERROR(&tx_stream));
-        return;
+        return Brushless_error::ENCODE_ERROR;
     }
 
+    /* Compute CRC */
     MbedCRC<POLY_32BIT_ANSI, 32> ct;
-    ct.compute((uint8_t *)_brushless_tx_buffer + HEADER_SIZE, message_length,
+
+    ct.compute((uint8_t *)_brushless_tx_buffer + 5, message_length,
                (uint32_t *)(_brushless_tx_buffer + 1));
+    printf("The CRC of protobuf packet is : 0x%lx\n", _brushless_tx_buffer);
+
+    /* add message length */
     _brushless_tx_buffer[0] = message_length;
 
+    /* Send the SPI message */
+    _spi_mutex->lock();
     _chip_select = 0;
-    _spi->write((const char *)_brushless_tx_buffer,
-                message_length + HEADER_SIZE, (char *)_brushless_rx_buffer,
-                BrushlessToRobot_size + HEADER_SIZE);
-
+    _spi->write((const char *)_brushless_tx_buffer, message_length + 5,
+                (char *)_brushless_rx_buffer, BrushlessToRobot_size + 4 + 1);
     _chip_select = 1;
+    _spi_mutex->unlock();
 
+    /* Try to decode protobuf response */
     BrushlessToRobot response = BrushlessToRobot_init_zero;
     uint8_t response_length = _brushless_rx_buffer[0];
 
     /* Create a stream that reads from the buffer. */
-    pb_istream_t rx_stream = pb_istream_from_buffer(
-        _brushless_rx_buffer + HEADER_SIZE, response_length);
+    pb_istream_t rx_stream =
+        pb_istream_from_buffer(_brushless_rx_buffer + 5, response_length);
 
     /* Now we are ready to decode the message. */
     status = pb_decode(&rx_stream, BrushlessToRobot_fields, &response);
@@ -53,8 +79,8 @@ void BrushlessBoard::set_speed(Commands command, float speed) {
     /* Check for errors... */
     if (!status) {
         printf("[BRUSHLESS] Decoding failed: %s\n", PB_GET_ERROR(&rx_stream));
-        //_rx_error_count++;
-        return;
+        _rx_error_count++;
+        return Brushless_error::DECODE_ERROR;
     }
 
     /* Check response CRC */
@@ -62,14 +88,39 @@ void BrushlessBoard::set_speed(Commands command, float speed) {
     ct.compute((uint8_t *)_brushless_rx_buffer + 5, response_length,
                &response_crc);
     if (response_crc == *((uint32_t *)(_brushless_rx_buffer + 1))) {
-        printf("CRC OK\n");
+        // printf("CRC OK\n");
     } else {
-        printf("CRC_ERROR 0x%x 0x%x\n", response_crc,
-               *((uint32_t *)(_brushless_rx_buffer + 1)));
-        //_rx_error_count++;
-        return;
+        // printf("CRC_ERROR 0x%x 0x%x\n", response_crc, *((uint32_t *)
+        // (_brushless_rx_buffer + 1)));
+        _rx_error_count++;
+        return Brushless_error::DECODE_ERROR;
     }
 
     /* Print the data contained in the message. */
-    //_tx_error_count = response.error_count;
+    _tx_error_count = response.error_count;
+
+    return Brushless_error::NO_ERROR;
 }
+
+void Brushless_board::start_communication() {
+    _communication_id = _event_queue.call_every(_period_ms, this,
+                                                &Brushless_board::send_message);
+    _communication_thread.start(
+        callback(&_event_queue, &EventQueue::dispatch_forever));
+}
+
+void Brushless_board::stop_communication() {
+    _event_queue.cancel(_communication_id);
+}
+
+void Brushless_board::set_communication_period(uint64_t period_ms) {
+    _period_ms = period_ms;
+}
+
+void Brushless_board::set_state(Commands state) { _current_command = state; }
+
+void Brushless_board::set_speed(float speed) { _current_speed = speed; }
+
+uint32_t Brushless_board::get_rx_error_count() { return _rx_error_count; }
+
+uint32_t Brushless_board::get_tx_error_count() { return _tx_error_count; }
