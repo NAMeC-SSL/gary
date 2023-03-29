@@ -33,15 +33,10 @@ void send_packet(uint8_t *packet, size_t length) {
 
 void send_protobuf_packet(BaseCommand command) {
     event_queue.call(printf, "Robot ID %d\n", command.robot_id);
-
-    // printf("send_protobuf_packet\n");
-    // radio.set_payload_size(NRF24L01::RxAddressPipe::RX_ADDR_P0,
-    // IAToMainBoard_size); printf("0x");
-    //     for (int i = 0; i < IAToMainBoard_size; i++) {
-    //     printf("%02x", radio_packet[i]);
-    // }
-    // printf("\n");
-    // radio.send_packet(radio_packet, IAToMainBoard_size + 1);
+    uint8_t tx_buffer[RadioCommand_size + 1];
+    tx_buffer[0] = RadioCommand_size;
+    memcpy(&tx_buffer[1], &command, sizeof(BaseCommand));
+    radio.send_packet(tx_buffer, RadioCommand_size + 1);
 }
 
 void on_rx_interrupt() {
@@ -64,7 +59,6 @@ void on_rx_interrupt() {
             length = 0;
             read_count = 0;
             // TODO: Make something
-            // event_queue.call(send_protobuf_packet);
         }
     } else {
         serial_port.read(&read_buffer[read_count], 1);
@@ -88,7 +82,6 @@ void on_rx_interrupt() {
                 event_queue.call(printf, "Decoding failed: %s\n",
                                  PB_GET_ERROR(&rx_stream));
             } else {
-                // event_queue.call(printf, "CMD! Length: %d\n", length);
                 for (int i = 0; i < ai_message.commands_count; i++) {
                     BaseCommand command = ai_message.commands[i];
                     event_queue.call(send_protobuf_packet, command);
@@ -114,14 +107,14 @@ int main() {
     // Remote
     serial_port.baud(115200);
     serial_port.attach(&on_rx_interrupt, SerialBase::RxIrq);
-    // radio.initialize(NRF24L01::OperationMode::TRANSCEIVER,
-    //                  NRF24L01::DataRate::_2MBPS, 2402);
-    // radio.attach_transmitting_payload(NRF24L01::RxAddressPipe::RX_ADDR_P0,
-    //                                   com_addr1_to_listen,
-    //                                   IAToMainBoard_size + 1);
-    // radio.set_payload_size(NRF24L01::RxAddressPipe::RX_ADDR_P0,
-    //                        IAToMainBoard_size + 1);
-    // radio.set_interrupt(NRF24L01::InterruptMode::NONE);
+    radio.initialize(NRF24L01::OperationMode::TRANSCEIVER,
+                     NRF24L01::DataRate::_2MBPS, 2402);
+    radio.attach_transmitting_payload(NRF24L01::RxAddressPipe::RX_ADDR_P0,
+                                      com_addr1_to_listen,
+                                      RadioCommand_size + 1);
+    radio.set_payload_size(NRF24L01::RxAddressPipe::RX_ADDR_P0,
+                           RadioCommand_size + 1);
+    radio.set_interrupt(NRF24L01::InterruptMode::NONE);
 
     // memset(radio_packet, 0xFF, sizeof(radio_packet));
 
@@ -131,7 +124,6 @@ int main() {
 
     while (true) {
         led1 = !led1;
-        printf("Alive");
         ThisThread::sleep_for(HALF_PERIOD);
     }
 }
