@@ -1,12 +1,18 @@
 #include <mbed.h>
+#include <radio_command.pb.h>
 #include <swo.h>
 
-// #include "motor/motor_manager.h"
+#include "kicker/kicker.h"
 #include "motor/brushless_board.h"
+#include "motor/dribbler.h"
+#include "rf_app.h"
 #include "sensor/ir.h"
 
-#define BLINKING_RATE 30ms
+#define HALF_PERIOD 500ms
 #define ROBOT_RADIUS 0.085
+#define RF_FREQ_1 2402
+#define RF_FREQ_2 2460
+
 static SWO swo;
 
 FileHandle *mbed::mbed_override_console(int fd) { return &swo; }
@@ -21,6 +27,12 @@ static Brushless_board motor1(&driver_spi, SPI_CS_DRV1, &spi_mutex);
 static Brushless_board motor2(&driver_spi, SPI_CS_DRV2, &spi_mutex);
 static Brushless_board motor3(&driver_spi, SPI_CS_DRV3, &spi_mutex);
 static Brushless_board motor4(&driver_spi, SPI_CS_DRV4, &spi_mutex);
+static Dribbler dribbler(&driver_spi, SPI_CS_DRV5, &spi_mutex);
+static SPI radio_spi(SPI_MOSI_RF, SPI_MISO_RF, SPI_SCK_RF);
+static NRF24L01 radio1(&radio_spi, SPI_CS_RF1, CE_RF1, IRQ_RF1);
+static Timeout timeout;
+
+static KICKER kicker(KCK_EN, KCK1, KCK2);
 
 /* Struct definitions */
 typedef struct _Motor_speed {
@@ -29,6 +41,9 @@ typedef struct _Motor_speed {
     float speed3;
     float speed4;
 } Motor_speed;
+
+static uint8_t com_addr1_to_listen[5] = {0x22, 0x87, 0xe8, 0xf9, 0x01};
+RadioCommand ai_message = RadioCommand_init_zero;
 
 void compute_motor_speed(Motor_speed *motor_speed, float normal_speed,
                          float tangential_speed, float angular_speed) {
@@ -45,12 +60,19 @@ void compute_motor_speed(Motor_speed *motor_speed, float normal_speed,
                           (1. / 2.) * tangential_speed +
                           ROBOT_RADIUS * angular_speed;
 }
-
 void apply_motor_speed() {
-    Motor_speed motor_speed;
+    if (ai_message.normal_velocity != 0 ||
+        ai_message.tangential_velocity != 0 ||
+        ai_message.angular_velocity != 0) {
+        // printf("Normal speed: %f\n", ai_message.normal_speed);
+        // printf("tangential speed: %f\n", ai_message.tangential_speed);
+        // printf("angular speed: %f\n", ai_message.angular_speed);
+    }
 
-    // TODO: Change this !
-    compute_motor_speed(&motor_speed, 0.5, 0.5, 2.0);
+    Motor_speed motor_speed;
+    compute_motor_speed(&motor_speed, ai_message.normal_velocity,
+                        ai_message.tangential_velocity,
+                        ai_message.angular_velocity);
 
     motor1.set_state(Commands_RUN);
     motor2.set_state(Commands_RUN);
@@ -73,6 +95,57 @@ void stop_motors() {
     motor4.set_speed(0.0);
 }
 
+void on_rx_interrupt(uint8_t *data, size_t data_size) {
+    static uint8_t length = 0;
+    ai_message = RadioCommand_init_zero;
+
+    length = data[0];
+
+    if (length == 0) {
+        event_queue.call(apply_motor_speed);
+    } else {
+        /* Try to decode protobuf response */
+        /* Create a stream that reads from the buffer. */
+        pb_istream_t rx_stream = pb_istream_from_buffer(&data[1], length);
+
+        /* Now we are ready to decode the message. */
+        bool status = pb_decode(&rx_stream, RadioCommand_fields, &ai_message);
+
+        /* Check for errors... */
+        if (!status) {
+            event_queue.call(printf, "[IA] Decoding failed: %s\n",
+                             PB_GET_ERROR(&rx_stream));
+        } else {
+            event_queue.call(apply_motor_speed);
+            if (ai_message.kick == Kicker::Kicker_CHIP) {
+                kicker.kick1(ai_message.kick_power);
+                event_queue.call(printf, "Power %f\n", ai_message.kick_power);
+            }
+            if (ai_message.kick == Kicker::Kicker_FLAT) {
+                kicker.kick2(ai_message.kick_power);
+                event_queue.call(printf, "Power %f\n", ai_message.kick_power);
+            }
+            if (ai_message.dribbler > 0.0) {
+                dribbler.set_state(Commands_RUN);
+                dribbler.set_speed(400);
+                dribbler.send_message();
+            } else {
+                dribbler.set_state(Commands_STOP);
+                dribbler.set_speed(0);
+                dribbler.send_message();
+            }
+
+            if (ai_message.charge == 1) {
+                kicker.enable_charge();
+            } else {
+                kicker.disable_charge();
+            }
+        }
+    }
+    timeout.detach();
+    timeout.attach(stop_motors, 500ms);
+}
+
 void print_communication_status() {
     printf("Motor1 TX errors: %ld\n", motor1.get_tx_error_count());
     printf("Motor1 RX errors: %ld\n", motor1.get_rx_error_count());
@@ -87,25 +160,31 @@ void print_communication_status() {
 int main() {
     driver_spi.frequency(500000);
 
-    // MotorManager m;
-    // motor1.set_communication_period(10);
-    // motor2.set_communication_period(10);
-    // motor3.set_communication_period(10);
-    // motor4.set_communication_period(10);
+    // // Remote
+    // serial_port.baud(115200);
+    // serial_port.attach(&on_rx_interrupt, SerialBase::RxIrq);
 
-    // motor1.start_communication();
-    // motor2.start_communication();
-    // motor3.start_communication();
-    // motor4.start_communication();
+    motor1.set_communication_period(10);
+    motor2.set_communication_period(10);
+    motor3.set_communication_period(10);
+    motor4.set_communication_period(10);
 
-    // stop_motors();
-    //  ThisThread::sleep_for(1s);
+    motor1.start_communication();
+    motor2.start_communication();
+    motor3.start_communication();
+    motor4.start_communication();
+
+    // event_queue.call_every(1s, print_communication_status);
+
+    // Radio
+    RF_app rf_app1(&radio1, RF_app::RFAppMode::RX, RF_FREQ_1,
+                   com_addr1_to_listen, RadioCommand_size + 1);
+    rf_app1.print_setup();
+    rf_app1.attach_rx_callback(&on_rx_interrupt);
+    rf_app1.run();
+
+    event_queue.dispatch_forever();
 
     while (true) {
-        led = !led;
-        // apply_motor_speed();
-        // print_communication_status();
-
-        ThisThread::sleep_for(BLINKING_RATE);
     }
 }
