@@ -31,7 +31,9 @@ void send_packet(uint8_t *packet, size_t length) {
     radio.send_packet(packet, length);
 }
 
-void send_protobuf_packet() {
+void send_protobuf_packet(BaseCommand command) {
+    event_queue.call(printf, "Robot ID %d\n", command.robot_id);
+
     // printf("send_protobuf_packet\n");
     // radio.set_payload_size(NRF24L01::RxAddressPipe::RX_ADDR_P0,
     // IAToMainBoard_size); printf("0x");
@@ -62,7 +64,6 @@ void on_rx_interrupt() {
             length = 0;
             read_count = 0;
             // TODO: Make something
-            // radio_packet[0] = 0;
             // event_queue.call(send_protobuf_packet);
         }
     } else {
@@ -71,8 +72,6 @@ void on_rx_interrupt() {
         if (read_count == length) {
             read_count = 0;
             start_of_frame = false;
-
-            // event_queue.call(printf, "Parsing !\n");
 
             /* Try to decode protobuf response */
             ai_message = PCToBase_init_zero;
@@ -89,10 +88,11 @@ void on_rx_interrupt() {
                 event_queue.call(printf, "Decoding failed: %s\n",
                                  PB_GET_ERROR(&rx_stream));
             } else {
-                // radio_packet[0] = length;
-                // memcpy(&radio_packet[1], read_buffer, length);
-                event_queue.call(printf, "CMD! Length: %d\n", length);
-                // event_queue.call(send_protobuf_packet);
+                // event_queue.call(printf, "CMD! Length: %d\n", length);
+                for (int i = 0; i < ai_message.commands_count; i++) {
+                    BaseCommand command = ai_message.commands[i];
+                    event_queue.call(send_protobuf_packet, command);
+                }
             }
         }
     }
