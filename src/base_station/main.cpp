@@ -1,4 +1,5 @@
 #include <base_wrapper.pb.h>
+#include <common/constants.h>
 #include <mbed.h>
 #include <nrf24l01.h>
 #include <pb.h>
@@ -20,7 +21,6 @@ static UnbufferedSerial serial_port(USBTX, USBRX);
 
 static PCToBase ai_message = PCToBase_init_zero;
 static uint8_t com_addr1_to_listen[5] = {0x22, 0x87, 0xe8, 0xf9, 0x01};
-// static uint8_t radio_packet[IAToMainBoard_size + 1];
 
 SWO swo;
 
@@ -107,8 +107,9 @@ int main() {
     // Remote
     serial_port.baud(115200);
     serial_port.attach(&on_rx_interrupt, SerialBase::RxIrq);
+
     radio.initialize(NRF24L01::OperationMode::TRANSCEIVER,
-                     NRF24L01::DataRate::_2MBPS, 2402);
+                     NRF24L01::DataRate::_2MBPS, RF_FREQUENCY_1);
     radio.attach_transmitting_payload(NRF24L01::RxAddressPipe::RX_ADDR_P0,
                                       com_addr1_to_listen,
                                       RadioCommand_size + 1);

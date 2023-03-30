@@ -1,3 +1,4 @@
+#include <common/constants.h>
 #include <mbed.h>
 #include <radio_command.pb.h>
 #include <swo.h>
@@ -10,8 +11,6 @@
 
 #define HALF_PERIOD 500ms
 #define ROBOT_RADIUS 0.085
-#define RF_FREQ_1 2402
-#define RF_FREQ_2 2460
 
 static SWO swo;
 
@@ -177,7 +176,7 @@ int main() {
     // event_queue.call_every(1s, print_communication_status);
 
     // Radio
-    RF_app rf_app1(&radio1, RF_app::RFAppMode::RX, RF_FREQ_1,
+    RF_app rf_app1(&radio1, RF_app::RFAppMode::RX, RF_FREQUENCY_1,
                    com_addr1_to_listen, RadioCommand_size + 1);
     rf_app1.print_setup();
     rf_app1.attach_rx_callback(&on_rx_interrupt);
