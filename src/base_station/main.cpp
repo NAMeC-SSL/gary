@@ -15,8 +15,8 @@ namespace {
 EventQueue event_queue;
 
 static DigitalOut led1(LED1);
-static SPI spi(SPI1_MOSI, SPI1_MISO, SPI1_SCK);
-static NRF24L01 radio(&spi, DIO1, DIO2, NC);
+static SPI spi(SPI_MOSI_RF, SPI_MISO_RF, SPI_SCK_RF);
+static NRF24L01 radio(&spi, SPI_CS_RF1, CE_RF1, IRQ_RF1);
 static UnbufferedSerial serial_port(USBTX, USBRX);
 
 static PCToBase ai_message = PCToBase_init_zero;
